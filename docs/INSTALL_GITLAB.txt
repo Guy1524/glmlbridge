@@ -1,0 +1,32 @@
+Dependencies:
+
+Python 3
+GitPython
+python-gitlab
+
+General Setup Steps
+- On your gitlab instance, make a bot user, (ml-bot, for example), and fork the main repository.
+
+- Clone the fork to cfg.LOCAL_REPO_PATH, and make sure you have write access to your fork (via ssh keys)
+
+- Setup a remote to the main repository named 'upstream', so that we can update master before applying wine-devel patches
+
+- Set process-gl-events.py and process-ml-events.py to be called at a reasonable interval. You could also call process-ml-events after the filter script
+
+- Adjust values in cfg.py
+
+- Setup the Filter Script; modified excerpt from INSTALL.txt of wine/tools repo:
+
+  - Create the $HOME/patches directory where the patch data will live:
+      mkdir -p $HOME/patches
+  - Arrange for the filter script to be fed the wine-devel emails. One way to
+    do so would be to subscribe the winehq user to the wine-devel mailing list
+    and to then add the following lines to the .procmailrc file:
+      :0
+      * ^List-Id:.*listname\.site\.com
+      {
+        :0 hbfw
+        | .../glmlbridge/filter
+        :0:
+        $HOME/patches/.
+      }

@@ -1,0 +1,173 @@
+#!/usr/bin/perl -w
+#
+# Reformat a wine-devel email so it can be put in a file that the patches
+# site can link to. In particular this means only keeping the relevant
+# header fields and decoding / decompressing the patch.
+#
+# Copyright 2009 Alexandre Julliard
+#
+# This library is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public
+# License as published by the Free Software Foundation; either
+# version 2.1 of the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public
+# License along with this library; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+# TODO: filter out emails from the bot
+
+use strict;
+use Email::MIME;
+use File::Temp;
+use Encode;
+
+my $debug = 0;
+
+# determine the best -p option for a list of filenames
+sub find_p_option(@)
+{
+    while (@_)
+    {
+        my $a = shift;
+        my $b = shift;
+        next if $a eq "/dev/null";
+        next if $b eq "/dev/null";
+        my @a = split "/", $a;
+        my @b = split "/", $b;
+        my $ret = 0;
+        while ($a[$ret] ne $b[$ret]) { $ret++; }
+        return $ret;
+    }
+    return 0;
+}
+
+sub add_prefix($$$)
+{
+    my ($str, $option, $prefix) = @_;
+
+    return $str if ($str eq "/dev/null");
+    my @components = split "/", $str;
+    while ($option--) { shift @components; }
+    if ($components[0] eq ".") { shift @components; }
+    return $prefix . join "/", @components;
+}
+
+sub filter_patch(@)
+{
+    my @diff_lines = ();
+    my $p_option = -1;
+    my $use_index = 0;
+    my $git_patch = 0;
+
+    foreach $_ (@_)
+    {
+        chomp;
+        s/\r$//;
+        if (/^Index: (\S*)/) { $use_index = 1; }
+        elsif (/^\+\+\+ b\//) { $git_patch = 1; }
+        elsif (/^diff --git/) { $git_patch = 1; }
+        elsif (/ (\/dev\/null)/) { push @diff_lines, $1; }
+        elsif (/^--- (\S*)\//) { push @diff_lines, $1; }
+        elsif (/^\+\+\+ (\S*)\//) { push @diff_lines, $1; }
+    }
+
+    if ($git_patch) { $p_option = 1; }
+    elsif ($use_index) { $p_option = 0; }
+    else { $p_option = find_p_option( @diff_lines ); }
+
+    # now patch the diff lines
+    my $file = "";
+    foreach $_ (@_)
+    {
+        if (/^Index: (\S*)/)
+        {
+            $file = $1 if $use_index;
+            s/^Index:/X-Index:/;
+        }
+        if (/^--- (\S*)\s/)
+        {
+            my $f = $1;
+            if (!$use_index) { $file = $f; }
+            $f = add_prefix( $file, $p_option, "a/" );
+            s/^--- .*/--- $f/;
+        }
+        elsif (/^\+\+\+ (\S*)\s/)
+        {
+            my $f = $1;
+            if (!$use_index)
+            {
+                # return old file name if new name doesn't contain a path
+                $file = $f if ($f =~ /\// || $file eq "/dev/null");
+            }
+            $f = add_prefix( $file, $p_option, "b/" );
+            s/^\+\+\+ .*/\+\+\+ $f/;
+        }
+        elsif ($git_patch && /^-- $/)
+        {
+            $_ = "\n" . $_;
+        }
+    }
+
+    return @_;
+}
+
+sub decode_parts(@);
+
+sub decode_parts(@)
+{
+    my @all_lines;
+    foreach my $part (@_)
+    {
+        my @lines;
+        my $type = $part->content_type || "";
+        my $name = $part->header("Content-Disposition") ? ($part->filename || "") : "";
+        push @lines, "********* part $type file $name **************\n" if $debug;
+        if ($type =~ /^application\/x-bzip2/ ||
+            $type =~ /^application\/gzip/ ||
+            $type =~ /^application\/x-gzip/ ||
+            $name =~ /\.bz2$/ ||
+            $name =~ /\.gz$/)
+        {
+            my ($file, $filename) = File::Temp::tempfile();
+            my $cmd = "gunzip -c >$filename";
+            if ($type =~ /^application\/x-bzip2/ || $name =~ /\.bz2$/)
+            {
+                $cmd = "bunzip2 -c >$filename";
+            }
+            open WRITE, "|$cmd" or die "cannot run $cmd";
+            print WRITE $part->body;
+            close WRITE;
+            push @lines, filter_patch(<$file>);
+            close $file;
+            unlink $filename;
+        }
+        elsif ($type =~ /^multipart/)
+        {
+            push @lines, decode_parts($part->parts);
+        }
+        elsif ($part->body)
+        {
+            push @lines, filter_patch(split("\n",$part->body));
+        }
+        push @lines, "" if (@lines && $lines[$#lines] ne "");
+        push @all_lines, @lines;
+    }
+    return @all_lines;
+}
+
+my $message = Email::MIME->new( join("",<STDIN>) );
+
+printf "From: %s\n", encode_utf8($message->Email::Simple::header("from") || "(unknown)");
+printf "Subject: %s\n", encode_utf8($message->Email::Simple::header("subject") || "(none)");
+printf "Message-Id: %s\n", $message->header("message-id");
+printf "Date: %s\n", $message->header("date");
+printf "In-Reply-To: %s\n", $message->header("in-reply-to") if $message->header("in-reply-to");
+printf "References: %s\n", $message->header("references") if $message->header("references");
+print "\n";
+print join("\n",decode_parts($message->parts)), "\n";
