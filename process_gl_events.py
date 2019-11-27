@@ -31,7 +31,8 @@ def find_mr_initial_hash(mr):
   initial_hash = source_project.branches.get(mr.source_branch).commit['id']
   # get the events of the source project again
   for event in source_project.events.list(sort='asc', all=True):
-    if (dateutil.parser.parse(event.created_at) > dateutil.parser.parse(mr.created_at)) and event.action_name == 'pushed to':
+    if ((dateutil.parser.parse(event.created_at) > dateutil.parser.parse(mr.created_at))
+        and event.action_name == 'pushed to' and event.push_data['ref'] == mr.source_branch):
       initial_hash = event.push_data['commit_from']
       break
   return initial_hash
@@ -177,7 +178,7 @@ def main():
     last_time = datetime.datetime.now(datetime.timezone.utc)
 
   # TODO: Only ask for event in past few days
-  # the GitLab API has extremely strange where some events are exclusive to the sorting order
+  # the GitLab API has extremely strange behavior where some events are exclusive to the sorting order
   all_events = MAIN_REPO.events.list(sort='asc', all=True) + MAIN_REPO.events.list(sort='desc', all=True)
 
   # also get push events from the repos used in MRs, as the gitlab API docs are wrong and we can't rely on MR update events

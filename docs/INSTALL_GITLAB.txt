@@ -3,6 +3,7 @@ Dependencies:
 Python 3
 GitPython
 python-gitlab
+python-datetime
 
 General Setup Steps
 - On your gitlab instance, make a bot user, (ml-bot, for example), and fork the main repository.

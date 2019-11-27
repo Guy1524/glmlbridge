@@ -80,10 +80,10 @@ def create_or_update_merge_request(mr, title, author, description, patches, prol
   # create merge request
   if mr is None:
     mr = FORK_REPO.mergerequests.create({'source_branch': branch_name,
-                                       'target_project_id': cfg.MAIN_REPO_ID,
-                                       'target_branch': 'master',
-                                       'title': title if title is not None else 'Multi-Patch Patchset from Mailing List',
-                                       'description': description})
+                                         'target_project_id': cfg.MAIN_REPO_ID,
+                                         'target_branch': 'master',
+                                         'title': title if title is not None else 'Multi-Patch Patchset from Mailing List',
+                                         'description': description})
     if not cfg.BIDIRECTIONAL_COMM:
       admin_mr = ADMIN_PROJECT_VIEW.mergerequests.get(mr.id)
       admin_mr.discussion_locked = True

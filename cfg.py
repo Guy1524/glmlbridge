@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 '''Configuration file, suited for wine by default'''
 import pathlib
 import datetime
